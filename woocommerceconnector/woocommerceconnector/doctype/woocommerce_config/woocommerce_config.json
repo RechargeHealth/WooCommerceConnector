@@ -60,7 +60,8 @@
   "import_payment",
   "section_advanced",
   "sync_timeout",
-  "trigger_update_item_stock"
+  "trigger_update_item_stock",
+  "delivery_after_days"
  ],
  "fields": [
   {
@@ -370,6 +371,12 @@
    "label": "Item code based on..",
    "options": "WooCommerce ID\nWooCommerce ID + Name\nWooCommerce Name\nRandom Hash\nNaming Series",
    "reqd": 1
+  },
+  {
+    "fieldname": "delivery_after_days",
+    "fieldtype": "Int",
+    "label": "Delivery After (Days)",
+    "default": 0
   },
   {
    "depends_on": "eval:doc.item_code_based_on=='Naming Series'",
