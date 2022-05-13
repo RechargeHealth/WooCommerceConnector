@@ -8,7 +8,7 @@ from .sync_customers import (
     create_customer_address,
     create_customer_contact,
 )
-from frappe.utils import flt, nowdate, cint
+from frappe.utils import flt, nowdate, cint, get_datetime, get_date_str, add_days, logger
 from .woocommerce_requests import (
     get_woocommerce_orders,
     get_woocommerce_tax,
@@ -307,6 +307,9 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
             tax_rules = tax_rules[0]["tax_rule"]
         else:
             tax_rules = ""
+
+        transactionDate = get_datetime(woocommerce_order.get("date_created"))
+        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
         so = frappe.get_doc(
             {
                 "doctype": "Sales Order",
@@ -318,12 +321,13 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
                 ),
                 "customer": customer,
                 "customer_group": woocommerce_settings.customer_group,  # hard code group, as this was missing since v12
-                "delivery_date": nowdate(),
+                "delivery_date": get_date_str(deliveryDate),
+                "transaction_date": get_date_str(transactionDate),
                 "company": woocommerce_settings.company,
                 "selling_price_list": woocommerce_settings.price_list,
                 "ignore_pricing_rule": 1,
                 "items": get_order_items(
-                    woocommerce_order.get("line_items"), woocommerce_settings
+                    woocommerce_order.get("line_items"), woocommerce_settings, get_date_str(deliveryDate)
                 ),
                 "taxes": get_order_taxes(woocommerce_order, woocommerce_settings),
                 # disabled discount as WooCommerce will send this both in the item rate and as discount
@@ -479,7 +483,7 @@ def get_fulfillment_items(dn_items, fulfillment_items):
     ]
 
 
-def get_order_items(order_items, woocommerce_settings):
+def get_order_items(order_items, woocommerce_settings, delivery_date):
     items = []
     for woocommerce_item in order_items:
         item_code = get_item_code(woocommerce_item)
@@ -487,7 +491,7 @@ def get_order_items(order_items, woocommerce_settings):
             {
                 "item_code": item_code,
                 "rate": woocommerce_item.get("price"),
-                "delivery_date": nowdate(),
+                "delivery_date": delivery_date,
                 "qty": woocommerce_item.get("quantity"),
                 "warehouse": woocommerce_settings.warehouse,
             }
