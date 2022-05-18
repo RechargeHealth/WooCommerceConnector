@@ -188,6 +188,19 @@ def create_new_customer_of_guest(woocommerce_order):
     cust_info = woocommerce_order.get("billing")
 
     try:
+        customer_name = frappe.get_value(
+            "Customer",
+            {
+                "customer_name": "{0} {1}".format(cust_info["first_name"], cust_info["last_name"]),
+                "sync_with_woocommerce": 0,
+                "customer_group": woocommerce_settings.customer_group,
+                "territory": frappe.utils.nestedset.get_root_of("Territory"),
+                "customer_type": _("Individual"),
+            },
+            "name"
+        )
+        if customer_name:
+            return
         customer = frappe.get_doc(
             {
                 "doctype": "Customer",
@@ -262,13 +275,14 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
     customer = frappe.get_all(
         "Customer", filters=[["woocommerce_customer_id", "=", id]], fields=["name"]
     )
+    billing_address = woocommerce_order.get('billing')
     backup_customer = frappe.get_all(
         "Customer",
         filters=[
             [
-                "woocommerce_customer_id",
+                "customer_name",
                 "=",
-                "Guest of Order-ID: {0}".format(woocommerce_order.get("id")),
+                "{0} {1}".format(billing_address.get("first_name"), billing_address.get('last_name')),
             ]
         ],
         fields=["name"],
@@ -337,6 +351,7 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
                 "taxes_and_charges": tax_rules,
                 "customer_address": billing_address,
                 "shipping_address_name": shipping_address,
+                "customer_provided_note": woocommerce_order.get('customer_note'),
             }
         )
 
@@ -363,26 +378,36 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
 
 def get_customer_address_from_order(type, woocommerce_order, customer):
     address_record = woocommerce_order[type.lower()]
+    country = get_country_name(address_record.get("country"))
+    if not frappe.db.exists("Country", country):
+        country = "Switzerland"
     address_name = frappe.db.get_value(
         "Address",
         {
             "woocommerce_address_id": type,
             "address_line1": address_record.get("address_1"),
             "woocommerce_company_name": address_record.get("company") or "",
+            "address_title": " ".join([address_record.get("first_name"), address_record.get("last_name")]),
+            "address_type": type,
+            "address_line1": address_record.get("address_1") or "Address 1",
+            "address_line2": address_record.get("address_2"),
+            "city": address_record.get("city") or "City",
+            "state": address_record.get("state"),
+            "pincode": address_record.get("postcode"),
+            "country": country,
+            "phone": address_record.get("phone"),
+            "email_id": address_record.get("email") if type=="Billing" else address_record.get("shipping_email"),
         },
         "name",
     )
     if not address_name:
-        country = get_country_name(address_record.get("country"))
-        if not frappe.db.exists("Country", country):
-            country = "Switzerland"
         try:
             address_name = frappe.get_doc(
                 {
                     "doctype": "Address",
                     "woocommerce_address_id": type,
                     "woocommerce_company_name": address_record.get("company") or "",
-                    "address_title": customer,
+                    "address_title": " ".join([address_record.get("first_name"), address_record.get("last_name")]),
                     "address_type": type,
                     "address_line1": address_record.get("address_1") or "Address 1",
                     "address_line2": address_record.get("address_2"),
@@ -391,7 +416,7 @@ def get_customer_address_from_order(type, woocommerce_order, customer):
                     "pincode": address_record.get("postcode"),
                     "country": country,
                     "phone": address_record.get("phone"),
-                    "email_id": address_record.get("email"),
+                    "email_id": address_record.get("email") if type=="Billing" else address_record.get("shipping_email"),
                     "links": [{"link_doctype": "Customer", "link_name": customer}],
                 }
             ).insert()
@@ -403,7 +428,7 @@ def get_customer_address_from_order(type, woocommerce_order, customer):
                 status="Error",
                 method="create_customer_address",
                 message=frappe.get_traceback(),
-                request_data=woocommerce_customer,
+                request_data=woocommerce_order,
                 exception=True,
             )
 
