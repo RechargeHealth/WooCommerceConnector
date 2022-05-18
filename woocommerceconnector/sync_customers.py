@@ -42,6 +42,17 @@ def create_customer(woocommerce_customer, woocommerce_customer_list):
             territory = country_name
         else:
             territory = frappe.utils.nestedset.get_root_of("Territory")
+        customer_to_check = frappe.get_value(
+            "Customer",
+            {
+                "customer_name": cust_name,
+                "sync_with_woocommerce": 0,
+                "customer_group": woocommerce_settings.customer_group,
+                "territory": territory,
+                "customer_type": _("Individual"),
+            },
+            "name"
+        )
         customer = frappe.get_doc({
             "doctype": "Customer",
             "name": woocommerce_customer.get("id"),
@@ -83,7 +94,8 @@ def create_customer_address(customer, woocommerce_customer):
             frappe.get_doc({
                 "doctype": "Address",
                 "woocommerce_address_id": "Billing",
-                "address_title": customer.name,
+                "woocommerce_company_name": billing_address.get("company") or "",
+                "address_title": " ".join([billing_address.get("first_name"), billing_address.get("last_name")]),
                 "address_type": "Billing",
                 "address_line1": billing_address.get("address_1") or "Address 1",
                 "address_line2": billing_address.get("address_2"),
@@ -104,14 +116,15 @@ def create_customer_address(customer, woocommerce_customer):
                     request_data=woocommerce_customer, exception=True)
 
     if shipping_address:
-        country = get_country_name(shipping_address.get("country"))
+        country = get_country_name(billing_address.get("country"))
         if not frappe.db.exists("Country", country):
             country = "Switzerland"
         try :
             frappe.get_doc({
                 "doctype": "Address",
                 "woocommerce_address_id": "Shipping",
-                "address_title": customer.name,
+                "woocommerce_company_name": shipping_address.get("company") or "",
+                "address_title": " ".join([shipping_address.get("first_name"), shipping_address.get("last_name")]),
                 "address_type": "Shipping",
                 "address_line1": shipping_address.get("address_1") or "Address 1",
                 "address_line2": shipping_address.get("address_2"),
@@ -120,7 +133,7 @@ def create_customer_address(customer, woocommerce_customer):
                 "pincode": shipping_address.get("postcode"),
                 "country": country,
                 "phone": shipping_address.get("phone"),
-                "email_id": shipping_address.get("email"),
+                "email_id": shipping_address.get("shipping_email"),
                 "links": [{
                     "link_doctype": "Customer",
                     "link_name": customer.name
