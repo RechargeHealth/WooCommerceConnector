@@ -8,7 +8,7 @@ from .sync_customers import (
     create_customer_address,
     create_customer_contact,
 )
-from frappe.utils import flt, nowdate, cint
+from frappe.utils import flt, nowdate, cint, get_datetime, get_date_str, add_days, logger
 from .woocommerce_requests import (
     get_woocommerce_orders,
     get_woocommerce_tax,
@@ -188,6 +188,19 @@ def create_new_customer_of_guest(woocommerce_order):
     cust_info = woocommerce_order.get("billing")
 
     try:
+        customer_name = frappe.get_value(
+            "Customer",
+            {
+                "customer_name": "{0} {1}".format(cust_info["first_name"], cust_info["last_name"]),
+                "sync_with_woocommerce": 0,
+                "customer_group": woocommerce_settings.customer_group,
+                "territory": frappe.utils.nestedset.get_root_of("Territory"),
+                "customer_type": _("Individual"),
+            },
+            "name"
+        )
+        if customer_name:
+            return
         customer = frappe.get_doc(
             {
                 "doctype": "Customer",
@@ -262,13 +275,14 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
     customer = frappe.get_all(
         "Customer", filters=[["woocommerce_customer_id", "=", id]], fields=["name"]
     )
+    billing_address = woocommerce_order.get('billing')
     backup_customer = frappe.get_all(
         "Customer",
         filters=[
             [
-                "woocommerce_customer_id",
+                "customer_name",
                 "=",
-                "Guest of Order-ID: {0}".format(woocommerce_order.get("id")),
+                "{0} {1}".format(billing_address.get("first_name"), billing_address.get('last_name')),
             ]
         ],
         fields=["name"],
@@ -307,6 +321,9 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
             tax_rules = tax_rules[0]["tax_rule"]
         else:
             tax_rules = ""
+
+        transactionDate = get_datetime(woocommerce_order.get("date_created"))
+        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
         so = frappe.get_doc(
             {
                 "doctype": "Sales Order",
@@ -318,12 +335,13 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
                 ),
                 "customer": customer,
                 "customer_group": woocommerce_settings.customer_group,  # hard code group, as this was missing since v12
-                "delivery_date": nowdate(),
+                "delivery_date": get_date_str(deliveryDate),
+                "transaction_date": get_date_str(transactionDate),
                 "company": woocommerce_settings.company,
                 "selling_price_list": woocommerce_settings.price_list,
                 "ignore_pricing_rule": 1,
                 "items": get_order_items(
-                    woocommerce_order.get("line_items"), woocommerce_settings
+                    woocommerce_order.get("line_items"), woocommerce_settings, get_date_str(deliveryDate)
                 ),
                 "taxes": get_order_taxes(woocommerce_order, woocommerce_settings),
                 # disabled discount as WooCommerce will send this both in the item rate and as discount
@@ -333,6 +351,7 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
                 "taxes_and_charges": tax_rules,
                 "customer_address": billing_address,
                 "shipping_address_name": shipping_address,
+                "customer_provided_note": woocommerce_order.get('customer_note'),
             }
         )
 
@@ -340,6 +359,11 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
 
         # alle orders in ERP = submitted
         so.save(ignore_permissions=True)
+
+        coupons = woocommerce_order.get('coupon_lines')
+        for coupon in coupons:
+            so.add_tag(coupon.get('code'))
+            
         so.submit()
 
     else:
@@ -359,26 +383,36 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
 
 def get_customer_address_from_order(type, woocommerce_order, customer):
     address_record = woocommerce_order[type.lower()]
+    country = get_country_name(address_record.get("country"))
+    if not frappe.db.exists("Country", country):
+        country = "Switzerland"
     address_name = frappe.db.get_value(
         "Address",
         {
             "woocommerce_address_id": type,
             "address_line1": address_record.get("address_1"),
             "woocommerce_company_name": address_record.get("company") or "",
+            "address_title": " ".join([address_record.get("first_name"), address_record.get("last_name")]),
+            "address_type": type,
+            "address_line1": address_record.get("address_1") or "Address 1",
+            "address_line2": address_record.get("address_2"),
+            "city": address_record.get("city") or "City",
+            "state": address_record.get("state"),
+            "pincode": address_record.get("postcode"),
+            "country": country,
+            "phone": address_record.get("phone"),
+            "email_id": address_record.get("email") if type=="Billing" else address_record.get("shipping_email"),
         },
         "name",
     )
     if not address_name:
-        country = get_country_name(address_record.get("country"))
-        if not frappe.db.exists("Country", country):
-            country = "Switzerland"
         try:
             address_name = frappe.get_doc(
                 {
                     "doctype": "Address",
                     "woocommerce_address_id": type,
                     "woocommerce_company_name": address_record.get("company") or "",
-                    "address_title": customer,
+                    "address_title": " ".join([address_record.get("first_name"), address_record.get("last_name")]),
                     "address_type": type,
                     "address_line1": address_record.get("address_1") or "Address 1",
                     "address_line2": address_record.get("address_2"),
@@ -387,7 +421,7 @@ def get_customer_address_from_order(type, woocommerce_order, customer):
                     "pincode": address_record.get("postcode"),
                     "country": country,
                     "phone": address_record.get("phone"),
-                    "email_id": address_record.get("email"),
+                    "email_id": address_record.get("email") if type=="Billing" else address_record.get("shipping_email"),
                     "links": [{"link_doctype": "Customer", "link_name": customer}],
                 }
             ).insert()
@@ -399,7 +433,7 @@ def get_customer_address_from_order(type, woocommerce_order, customer):
                 status="Error",
                 method="create_customer_address",
                 message=frappe.get_traceback(),
-                request_data=woocommerce_customer,
+                request_data=woocommerce_order,
                 exception=True,
             )
 
@@ -479,7 +513,7 @@ def get_fulfillment_items(dn_items, fulfillment_items):
     ]
 
 
-def get_order_items(order_items, woocommerce_settings):
+def get_order_items(order_items, woocommerce_settings, delivery_date):
     items = []
     for woocommerce_item in order_items:
         item_code = get_item_code(woocommerce_item)
@@ -487,7 +521,7 @@ def get_order_items(order_items, woocommerce_settings):
             {
                 "item_code": item_code,
                 "rate": woocommerce_item.get("price"),
-                "delivery_date": nowdate(),
+                "delivery_date": delivery_date,
                 "qty": woocommerce_item.get("quantity"),
                 "warehouse": woocommerce_settings.warehouse,
             }
