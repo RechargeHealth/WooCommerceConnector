@@ -359,6 +359,11 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
 
         # alle orders in ERP = submitted
         so.save(ignore_permissions=True)
+
+        coupons = woocommerce_order.get('coupon_lines')
+        for coupon in coupons:
+            so.add_tag(coupon.get('code'))
+            
         so.submit()
 
     else:
