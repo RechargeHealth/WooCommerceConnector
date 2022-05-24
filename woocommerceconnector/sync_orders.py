@@ -25,6 +25,8 @@ from erpnext.stock.doctype.serial_no.serial_no import (
 import requests.exceptions
 import requests
 
+from copy import copy
+
 
 def sync_orders():
     sync_woocommerce_orders()
@@ -486,13 +488,35 @@ def make_payment_entry_against_sales_invoice(doc, woocommerce_settings):
 def create_delivery_note(woocommerce_order, woocommerce_settings, so):
     try:
         dn = make_delivery_note(so.name)
-        for idx, item in enumerate(dn.items):
-            serial_no_list = auto_fetch_serial_number(qty=int(item.qty), item_code=item.item_code, warehouse=item.warehouse)
-            serial_no_str = "\n".join(serial_no_list)
-            dn.items[idx].serial_no = serial_no_str
-            if len(serial_no_list) > 0:
-                sn = frappe.get_doc('Serial No', serial_no_list[0])
-                dn.items[idx].batch_no = sn.batch_no
+        dn_items = []
+        for item in dn.items:
+            serial_nos_list_str = auto_fetch_serial_number(qty=int(item.qty), item_code=item.item_code, warehouse=item.warehouse)
+            serial_nos_list = list(map(lambda x: frappe.get_doc('Serial No', x), serial_nos_list_str))
+            sn_dict = {}
+            for serial_no in serial_nos_list:
+                if sn_dict.get(serial_no.batch_no) is None:
+                    sn_dict[serial_no.batch_no] = {
+                        'qty': 1,
+                        'serial_nos': [serial_no.name]
+                    }
+                else:
+                    sn_dict[serial_no.batch_no]['qty'] += 1
+                    sn_dict[serial_no.batch_no]['serial_nos'].append(serial_no.name)
+            
+            for batch_no in sn_dict.keys():
+                dn_item = copy(item)
+                dn_item.name = None
+                dn_item.qty = sn_dict[batch_no]['qty']
+                dn_item.batch_no = batch_no
+                dn_item.serial_no = "\n".join(sn_dict[batch_no]['serial_nos'])
+                dn_items.append(dn_item)
+
+            # serial_no_str = "\n".join(serial_no_list)
+            # dn.items[idx].serial_no = serial_no_str
+            # if len(serial_no_list) > 0:
+            #     sn = frappe.get_doc('Serial No', serial_no_list[0])
+            #     dn.items[idx].batch_no = sn.batch_no
+        dn.items = dn_items
         # dn.flags.ignore_mandatory = True
         dn.save()
         frappe.db.commit()
