@@ -19,6 +19,9 @@ from erpnext.selling.doctype.sales_order.sales_order import (
     make_delivery_note,
     make_sales_invoice,
 )
+from erpnext.stock.doctype.serial_no.serial_no import (
+    auto_fetch_serial_number
+)
 import requests.exceptions
 import requests
 
@@ -266,8 +269,8 @@ def create_order(woocommerce_order, woocommerce_settings, company=None):
         create_sales_invoice(woocommerce_order, woocommerce_settings, so)
 
     # Fix this -- add shipping stuff
-    # if woocommerce_order.get("fulfillments") and cint(woocommerce_settings.sync_delivery_note):
-    # create_delivery_note(woocommerce_order, woocommerce_settings, so)
+    if cint(woocommerce_settings.sync_delivery_note):
+        create_delivery_note(woocommerce_order, woocommerce_settings, so)
 
 
 def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
@@ -481,28 +484,35 @@ def make_payment_entry_against_sales_invoice(doc, woocommerce_settings):
 
 
 def create_delivery_note(woocommerce_order, woocommerce_settings, so):
-    for fulfillment in woocommerce_order.get("fulfillments"):
-        if (
-            not frappe.db.get_value(
-                "Delivery Note",
-                {"woocommerce_fulfillment_id": fulfillment.get("id")},
-                "name",
-            )
-            and so.docstatus == 1
-        ):
-            dn = make_delivery_note(so.name)
-            dn.woocommerce_order_id = fulfillment.get("order_id")
-            dn.woocommerce_fulfillment_id = fulfillment.get("id")
-            dn.naming_series = (
-                woocommerce_settings.delivery_note_series or "DN-woocommerce-"
-            )
-            dn.items = get_fulfillment_items(
-                dn.items, fulfillment.get("line_items"), woocommerce_settings
-            )
-            dn.flags.ignore_mandatory = True
-            dn.save()
-            frappe.db.commit()
-
+    try:
+        dn = make_delivery_note(so.name)
+        for idx, item in enumerate(dn.items):
+            serial_no_list = auto_fetch_serial_number(qty=int(item.qty), item_code=item.item_code, warehouse=item.warehouse)
+            serial_no_str = "\n".join(serial_no_list)
+            dn.items[idx].serial_no = serial_no_str
+            if len(serial_no_list) > 0:
+                sn = frappe.get_doc('Serial No', serial_no_list[0])
+                dn.items[idx].batch_no = sn.batch_no
+        # dn.flags.ignore_mandatory = True
+        dn.save()
+        frappe.db.commit()
+        make_woocommerce_log(
+            title="create Delivery Note",
+            status="Success",
+            method="create_delivery_note",
+            message="create delivery_note",
+            request_data=woocommerce_order,
+            exception=False,
+        )
+    except Exception as e:
+        make_woocommerce_log(
+            title=e,
+            status="Error",
+            method="create_delivery_note",
+            message=frappe.get_traceback(),
+            request_data=woocommerce_order,
+            exception=True,
+        )
 
 def get_fulfillment_items(dn_items, fulfillment_items):
     return [
