@@ -1,4 +1,5 @@
 {
+ "actions": [],
  "creation": "2015-05-18 05:21:07.270859",
  "doctype": "DocType",
  "document_type": "System",
@@ -54,6 +55,7 @@
   "woocommerce_so_status",
   "column_break_27",
   "sync_delivery_note",
+  "contact_person",
   "delivery_note_series",
   "sync_sales_invoice",
   "sales_invoice_series",
@@ -373,10 +375,10 @@
    "reqd": 1
   },
   {
-    "fieldname": "delivery_after_days",
-    "fieldtype": "Int",
-    "label": "Delivery After (Days)",
-    "default": 0
+   "default": "0",
+   "fieldname": "delivery_after_days",
+   "fieldtype": "Int",
+   "label": "Delivery After (Days)"
   },
   {
    "depends_on": "eval:doc.item_code_based_on=='Naming Series'",
@@ -401,10 +403,19 @@
    "fieldname": "trigger_update_item_stock",
    "fieldtype": "Check",
    "label": "Enable trigger to update item stock"
+  },
+  {
+   "depends_on": "eval:doc.sync_delivery_note==1",
+   "fieldname": "contact_person",
+   "fieldtype": "Link",
+   "label": "Contact Person",
+   "mandatory_depends_on": "eval:doc.sync_delivery_note==1",
+   "options": "User"
   }
  ],
  "issingle": 1,
- "modified": "2021-03-17 11:40:27.574647",
+ "links": [],
+ "modified": "2022-05-26 11:33:44.828272",
  "modified_by": "Administrator",
  "module": "WooCommerceConnector",
  "name": "WooCommerce Config",
