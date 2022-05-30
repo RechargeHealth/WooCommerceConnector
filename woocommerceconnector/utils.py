@@ -58,3 +58,14 @@ name=None, request_data={}):
 		
 		log.save(ignore_permissions=True)
 		frappe.db.commit()
+
+def get_mention_comment(mention_to_name, ) -> str:
+	user = frappe.get_doc('User', mention_to_name)
+	mention_comment = """
+	<span class="mention" data-id="{}" data-value="" data-denotation-char="@">
+		<span><span class="ql-mention-denotation-char">@</span>{}</span>
+	</span>""".format(user.name, user.get_fullname())
+	return mention_comment
+
+class InsufficientStockAmount(frappe.ValidationError):
+	pass

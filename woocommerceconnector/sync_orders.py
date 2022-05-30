@@ -2,7 +2,7 @@ from __future__ import unicode_literals
 import frappe
 from frappe import _
 from .exceptions import woocommerceError
-from .utils import make_woocommerce_log
+from .utils import make_woocommerce_log, get_mention_comment, InsufficientStockAmount
 from .sync_customers import (
     create_customer,
     create_customer_address,
@@ -19,8 +19,13 @@ from erpnext.selling.doctype.sales_order.sales_order import (
     make_delivery_note,
     make_sales_invoice,
 )
+from erpnext.stock.doctype.serial_no.serial_no import (
+    auto_fetch_serial_number
+)
 import requests.exceptions
 import requests
+
+from copy import copy
 
 
 def sync_orders():
@@ -266,8 +271,8 @@ def create_order(woocommerce_order, woocommerce_settings, company=None):
         create_sales_invoice(woocommerce_order, woocommerce_settings, so)
 
     # Fix this -- add shipping stuff
-    # if woocommerce_order.get("fulfillments") and cint(woocommerce_settings.sync_delivery_note):
-    # create_delivery_note(woocommerce_order, woocommerce_settings, so)
+    if cint(woocommerce_settings.sync_delivery_note):
+        create_delivery_note(woocommerce_order, woocommerce_settings, so)
 
 
 def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
@@ -481,28 +486,66 @@ def make_payment_entry_against_sales_invoice(doc, woocommerce_settings):
 
 
 def create_delivery_note(woocommerce_order, woocommerce_settings, so):
-    for fulfillment in woocommerce_order.get("fulfillments"):
-        if (
-            not frappe.db.get_value(
-                "Delivery Note",
-                {"woocommerce_fulfillment_id": fulfillment.get("id")},
-                "name",
-            )
-            and so.docstatus == 1
-        ):
-            dn = make_delivery_note(so.name)
-            dn.woocommerce_order_id = fulfillment.get("order_id")
-            dn.woocommerce_fulfillment_id = fulfillment.get("id")
-            dn.naming_series = (
-                woocommerce_settings.delivery_note_series or "DN-woocommerce-"
-            )
-            dn.items = get_fulfillment_items(
-                dn.items, fulfillment.get("line_items"), woocommerce_settings
-            )
-            dn.flags.ignore_mandatory = True
-            dn.save()
-            frappe.db.commit()
+    try:
+        dn = make_delivery_note(so.name)
+        dn_items = []
+        for item in dn.items:
+            serial_nos_list_str = auto_fetch_serial_number(qty=int(item.qty), item_code=item.item_code, warehouse=item.warehouse)
+            serial_nos_list = list(map(lambda x: frappe.get_doc('Serial No', x), serial_nos_list_str))
+            sn_dict = {}
+            for serial_no in serial_nos_list:
+                if sn_dict.get(serial_no.batch_no) is None:
+                    sn_dict[serial_no.batch_no] = {
+                        'qty': 1,
+                        'serial_nos': [serial_no.name]
+                    }
+                else:
+                    sn_dict[serial_no.batch_no]['qty'] += 1
+                    sn_dict[serial_no.batch_no]['serial_nos'].append(serial_no.name)
+            
+            for batch_no in sn_dict.keys():
+                dn_item = copy(item)
+                dn_item.name = None
+                dn_item.qty = sn_dict[batch_no]['qty']
+                dn_item.batch_no = batch_no
+                dn_item.serial_no = "\n".join(sn_dict[batch_no]['serial_nos'])
+                dn_items.append(dn_item)
 
+            # serial_no_str = "\n".join(serial_no_list)
+            # dn.items[idx].serial_no = serial_no_str
+            # if len(serial_no_list) > 0:
+            #     sn = frappe.get_doc('Serial No', serial_no_list[0])
+            #     dn.items[idx].batch_no = sn.batch_no
+        dn.items = dn_items
+        # dn.flags.ignore_mandatory = True
+        dn.save()
+        if dn.total_qty != so.total_qty:
+            mention_section = get_mention_comment(woocommerce_settings.contact_person)
+            comment = "<div><p>{}<br>{}</p></div>".format(mention_section, "Warning!!! The amount of items in the Delivery Note is less than amount in Sales Order.")
+            dn.add_comment("Comment", comment)
+        frappe.db.commit()
+        
+        make_woocommerce_log(
+            title="create Delivery Note",
+            status="Success",
+            method="create_delivery_note",
+            message="create delivery_note",
+            request_data=woocommerce_order,
+            exception=False,
+        )
+    except Exception as e:
+        mention_section = get_mention_comment(woocommerce_settings.contact_person)
+        comment = "<div><p>{} {}</p></div>".format(mention_section, "Cannot create Delivery Note for this Sales Order, please check!")
+        so.add_comment("Comment", comment)
+        frappe.db.commit()
+        make_woocommerce_log(
+            title=e,
+            status="Error",
+            method="create_delivery_note",
+            message=frappe.get_traceback(),
+            request_data=woocommerce_order,
+            exception=True,
+        )
 
 def get_fulfillment_items(dn_items, fulfillment_items):
     return [
