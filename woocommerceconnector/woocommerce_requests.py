@@ -261,6 +261,8 @@ def get_woocommerce_orders(order_status):
         params={
             "per_page": _per_page,
             "status": order_status,
+            "orderby": "date",
+            "order": "asc",
         },
     )
     extend_if_ok(response)
@@ -273,6 +275,8 @@ def get_woocommerce_orders(order_status):
                 "per_page": _per_page,
                 "page": page_idx + 1,
                 "status": order_status,
+                "orderby": "date",
+                "order": "asc",
             },
         )
         extend_if_ok(response)
