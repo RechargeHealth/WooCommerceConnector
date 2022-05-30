@@ -2,7 +2,7 @@ from __future__ import unicode_literals
 import frappe
 from frappe import _
 from .exceptions import woocommerceError
-from .utils import make_woocommerce_log
+from .utils import make_woocommerce_log, get_mention_comment, InsufficientStockAmount
 from .sync_customers import (
     create_customer,
     create_customer_address,
@@ -519,7 +519,12 @@ def create_delivery_note(woocommerce_order, woocommerce_settings, so):
         dn.items = dn_items
         # dn.flags.ignore_mandatory = True
         dn.save()
+        if dn.total_qty != so.total_qty:
+            mention_section = get_mention_comment(woocommerce_settings.contact_person)
+            comment = "<div><p>{}<br>{}</p></div>".format(mention_section, "Warning!!! The amount of items in the Delivery Note is less than amount in Sales Order.")
+            dn.add_comment("Comment", comment)
         frappe.db.commit()
+        
         make_woocommerce_log(
             title="create Delivery Note",
             status="Success",
@@ -529,6 +534,10 @@ def create_delivery_note(woocommerce_order, woocommerce_settings, so):
             exception=False,
         )
     except Exception as e:
+        mention_section = get_mention_comment(woocommerce_settings.contact_person)
+        comment = "<div><p>{} {}</p></div>".format(mention_section, "Cannot create Delivery Note for this Sales Order, please check!")
+        so.add_comment("Comment", comment)
+        frappe.db.commit()
         make_woocommerce_log(
             title=e,
             status="Error",
