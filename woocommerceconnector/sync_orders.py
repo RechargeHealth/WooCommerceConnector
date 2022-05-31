@@ -444,8 +444,12 @@ def get_customer_address_from_order(type, woocommerce_order, customer):
 
     return address_name
 
+def custom_validate_party_accounts(self):
+    return
 
 def create_sales_invoice(woocommerce_order, woocommerce_settings, so):
+    from erpnext.controllers.accounts_controller import AccountsController
+    AccountsController.validate_party_account_currency = custom_validate_party_accounts
     if (
         not frappe.db.get_value(
             "Sales Invoice",
@@ -462,7 +466,6 @@ def create_sales_invoice(woocommerce_order, woocommerce_settings, so):
         )
         si.flags.ignore_mandatory = True
         set_cost_center(si.items, woocommerce_settings.cost_center)
-        si.is_opening = 'Yes'
         si.submit()
         if cint(woocommerce_settings.import_payment) == 1:
             make_payment_entry_against_sales_invoice(si, woocommerce_settings)
