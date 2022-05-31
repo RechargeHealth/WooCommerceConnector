@@ -462,6 +462,7 @@ def create_sales_invoice(woocommerce_order, woocommerce_settings, so):
         )
         si.flags.ignore_mandatory = True
         set_cost_center(si.items, woocommerce_settings.cost_center)
+        si.is_opening = 'Yes'
         si.submit()
         if cint(woocommerce_settings.import_payment) == 1:
             make_payment_entry_against_sales_invoice(si, woocommerce_settings)
