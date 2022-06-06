@@ -490,13 +490,21 @@ def make_payment_entry_against_sales_invoice(doc, woocommerce_settings):
 
 
 def create_delivery_note(woocommerce_order, woocommerce_settings, so):
+    cache_repo = frappe.cache()
+    cache_name = 'reserved-woocommerce-sn'
     try:
         dn = make_delivery_note(so.name)
         dn_items = []
         for item in dn.items:
-            serial_nos_list_str = auto_fetch_serial_number(qty=int(item.qty), item_code=item.item_code, warehouse=item.warehouse)
+            reserved_sn_b = cache_repo.lrange(cache_name, 0, cache_repo.llen(cache_name))
+            reserved_sn_str = list(map(lambda x: x.decode('utf-8'), reserved_sn_b))
+            serial_nos_list_str = auto_fetch_serial_number(qty=int(item.qty), item_code=item.item_code, warehouse=item.warehouse, exclude_sr_nos=reserved_sn_str)
             serial_nos_list = list(map(lambda x: frappe.get_doc('Serial No', x), serial_nos_list_str))
             sn_dict = {}
+
+            for sn in serial_nos_list_str:
+                cache_repo.rpush(cache_name, sn)
+
             for serial_no in serial_nos_list:
                 if sn_dict.get(serial_no.batch_no) is None:
                     sn_dict[serial_no.batch_no] = {
