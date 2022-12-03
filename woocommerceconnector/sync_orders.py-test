@@ -97,33 +97,39 @@ def valid_customer_and_product(woocommerce_order):
 
     # new function item based on product id
     for item in woocommerce_order.get("line_items"):
-        if item.get("product_id"):
-            if not frappe.db.get_value(
-                "Item", {"woocommerce_product_id": item.get("product_id")}, "item_code"
-            ):
-                make_woocommerce_log(
-                    title="Item missing in ERPNext!",
-                    status="Error",
-                    method="valid_customer_and_product",
-                    message="Item with id {0} is missing in ERPNext! The Order {1} will not be imported! For details of order see below".format(
-                        item.get("product_id"), woocommerce_order.get("id")
-                    ),
-                    request_data=woocommerce_order,
-                    exception=True,
-                )
-                return False
-        else:
-            make_woocommerce_log(
-                title="Item id missing in WooCommerce!",
-                status="Error",
-                method="valid_customer_and_product",
-                message="Item id is missing in WooCommerce! The Order {0} will not be imported! For details of order see below".format(
-                    woocommerce_order.get("product_id")
-                ),
-                request_data=woocommerce_order,
-                exception=True,
-            )
-            return False
+            modified_product_id = item.get("product_id")
+            if item.get("product_id") == 163272:
+                modified_product_id = "146",
+            elif item.get("product_id") != 163272:
+                modified_product_id = item.get("product_id"),
+            if item.get("product_id"):
+                if not frappe.db.get_value(
+                    "Item", { "woocommerce_product_id":modified_product_id }, "item_code"
+                #        "Item", {"woocommerce_product_id": item.get("product_id")}, "item_code"
+                ):
+                    make_woocommerce_log(
+                        title="Item missing in ERPNext!",
+                        status="Error",
+                        method="valid_customer_and_product",
+                        message="Item with id {0} is missing in ERPNext! The Order {1} will not be imported! For details of order see below".format(
+                            item.get("product_id"), woocommerce_order.get("id")
+                        ),
+                        request_data=woocommerce_order,
+                        exception=True,
+                    )
+                    return False
+                else:
+                    make_woocommerce_log(
+                        title="Item id missing in WooCommerce!",
+                        status="Error",
+                        method="valid_customer_and_product",
+                        message="Item id is missing in WooCommerce! The Order {0} will not be imported! For details of order see below".format(
+                            woocommerce_order.get("product_id")
+                        ),
+                        request_data=woocommerce_order,
+                        exception=True,
+                    )
+                    return False
 
     try:
         customer_id = int(woocommerce_order.get("customer_id"))
@@ -328,7 +334,7 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
             tax_rules = ""
 
         transactionDate = get_datetime(woocommerce_order.get("date_created"))
-#        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
+      #  deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
         deliveryDate = add_days(transactionDate, 1)
         so = frappe.get_doc(
             {
@@ -365,13 +371,13 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
 
         so.flags.ignore_mandatory = True
 
-        # alle orders in ERP = submitted
+        # all orders in ERP = submitted
         so.save(ignore_permissions=True)
 
         coupons = woocommerce_order.get('coupon_lines')
         for coupon in coupons:
             so.add_tag(coupon.get('code'))
-            
+
         so.submit()
 
     else:
@@ -517,7 +523,7 @@ def create_delivery_note(woocommerce_order, woocommerce_settings, so):
                 else:
                     sn_dict[serial_no.batch_no]['qty'] += 1
                     sn_dict[serial_no.batch_no]['serial_nos'].append(serial_no.name)
-            
+
             for batch_no in sn_dict.keys():
                 dn_item = copy(item)
                 dn_item.name = None
@@ -539,7 +545,7 @@ def create_delivery_note(woocommerce_order, woocommerce_settings, so):
             comment = "<div><p>{}<br>{}</p></div>".format(mention_section, "Warning!!! The amount of items in the Delivery Note is less than amount in Sales Order.")
             dn.add_comment("Comment", comment)
         frappe.db.commit()
-        
+
         make_woocommerce_log(
             title="create Delivery Note",
             status="Success",
@@ -588,8 +594,22 @@ def get_order_items(order_items, woocommerce_settings, delivery_date):
 
 
 def get_item_code(woocommerce_item):
-    if cint(woocommerce_item.get("variation_id")) > 0:
+    if cint(woocommerce_item.get("variation_id")) == 163273:
         # variation
+        item_code = frappe.db.get_value(
+            "Item",
+            {"woocommerce_product_id": "194" },
+            "item_code",
+        )
+    elif cint(woocommerce_item.get("variation_id")) == 163274:
+        # variation
+        item_code = frappe.db.get_value(
+            "Item",
+            {"woocommerce_product_id": "195" },
+            "item_code",
+        )
+    elif cint(woocommerce_item.get("variation_id")) > 0:
+            # variation
         item_code = frappe.db.get_value(
             "Item",
             {"woocommerce_product_id": woocommerce_item.get("variation_id")},

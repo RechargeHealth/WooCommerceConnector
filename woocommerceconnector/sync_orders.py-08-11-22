@@ -328,8 +328,7 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
             tax_rules = ""
 
         transactionDate = get_datetime(woocommerce_order.get("date_created"))
-#        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
-        deliveryDate = add_days(transactionDate, 1)
+        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
         so = frappe.get_doc(
             {
                 "doctype": "Sales Order",

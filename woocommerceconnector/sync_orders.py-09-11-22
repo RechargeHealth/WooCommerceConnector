@@ -97,21 +97,27 @@ def valid_customer_and_product(woocommerce_order):
 
     # new function item based on product id
     for item in woocommerce_order.get("line_items"):
-        if item.get("product_id"):
+        modified_product_id = item.get("product_id")
+        if item.get("product_id") == 163272:
+            modified_product_id = "146",
+        elif item.get("product_id") != 163272:
+            modified_product_id = item.get("product_id"),
+#        if item.get("product_id"):
             if not frappe.db.get_value(
-                "Item", {"woocommerce_product_id": item.get("product_id")}, "item_code"
+                "Item", {"woocommerce_product_id": modified_product_id}, "item_code"
+            #        "Item", {"woocommerce_product_id": item.get("product_id")}, "item_code"
             ):
                 make_woocommerce_log(
-                    title="Item missing in ERPNext!",
-                    status="Error",
-                    method="valid_customer_and_product",
-                    message="Item with id {0} is missing in ERPNext! The Order {1} will not be imported! For details of order see below".format(
-                        item.get("product_id"), woocommerce_order.get("id")
-                    ),
-                    request_data=woocommerce_order,
-                    exception=True,
-                )
-                return False
+                title="Item missing in ERPNext!",
+                status="Error",
+                method="valid_customer_and_product",
+                message="Item with id {0} is missing in ERPNext! The Order {1} will not be imported! For details of order see below".format(
+                    item.get("product_id"), woocommerce_order.get("id")
+                ),
+                request_data=woocommerce_order,
+                exception=True,
+            )
+            return False
         else:
             make_woocommerce_log(
                 title="Item id missing in WooCommerce!",
@@ -328,8 +334,7 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
             tax_rules = ""
 
         transactionDate = get_datetime(woocommerce_order.get("date_created"))
-#        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
-        deliveryDate = add_days(transactionDate, 1)
+        deliveryDate = add_days(transactionDate, woocommerce_settings.delivery_after_days)
         so = frappe.get_doc(
             {
                 "doctype": "Sales Order",
@@ -371,7 +376,7 @@ def create_sales_order(woocommerce_order, woocommerce_settings, company=None):
         coupons = woocommerce_order.get('coupon_lines')
         for coupon in coupons:
             so.add_tag(coupon.get('code'))
-            
+
         so.submit()
 
     else:
@@ -517,7 +522,7 @@ def create_delivery_note(woocommerce_order, woocommerce_settings, so):
                 else:
                     sn_dict[serial_no.batch_no]['qty'] += 1
                     sn_dict[serial_no.batch_no]['serial_nos'].append(serial_no.name)
-            
+
             for batch_no in sn_dict.keys():
                 dn_item = copy(item)
                 dn_item.name = None
@@ -539,7 +544,7 @@ def create_delivery_note(woocommerce_order, woocommerce_settings, so):
             comment = "<div><p>{}<br>{}</p></div>".format(mention_section, "Warning!!! The amount of items in the Delivery Note is less than amount in Sales Order.")
             dn.add_comment("Comment", comment)
         frappe.db.commit()
-        
+
         make_woocommerce_log(
             title="create Delivery Note",
             status="Success",
@@ -586,7 +591,40 @@ def get_order_items(order_items, woocommerce_settings, delivery_date):
         )
     return items
 
+def get_item_code(woocommerce_item):
+    if cint(woocommerce_item.get("variation_id")) == 163273:
+        # variation
+        item_code = frappe.db.get_value(
+            "Item",
+            {"woocommerce_product_id": "194" },
+            "item_code",
+        )
+    elif cint(woocommerce_item.get("variation_id")) == 163274:
+        # variation
+        item_code = frappe.db.get_value(
+            "Item",
+            {"woocommerce_product_id": "195" },
+            "item_code",
+        )
+    elif cint(woocommerce_item.get("variation_id")) > 0:
+            # variation
+        item_code = frappe.db.get_value(
+            "Item",
+            {"woocommerce_product_id": woocommerce_item.get("variation_id")},
+            "item_code",
+        )
+    else:
+        # single
+        item_code = frappe.db.get_value(
+            "Item",
+            {"woocommerce_product_id": woocommerce_item.get("product_id")},
+            "item_code",
+        )
 
+    return item_code
+
+
+"""
 def get_item_code(woocommerce_item):
     if cint(woocommerce_item.get("variation_id")) > 0:
         # variation
@@ -604,7 +642,7 @@ def get_item_code(woocommerce_item):
         )
 
     return item_code
-
+"""
 
 def get_order_taxes(woocommerce_order, woocommerce_settings):
     taxes = []
@@ -626,17 +664,7 @@ def get_order_taxes(woocommerce_order, woocommerce_settings):
                 "cost_center": woocommerce_settings.cost_center,
             }
         )
-    # old code with conditional brutto/netto prices
-    # taxes.append({
-        #     "charge_type": "On Net Total" if woocommerce_order.get("prices_include_tax") else "Actual",
-        #     "account_head": get_tax_account_head(woocommerce_tax),
-        #     "description": "{0} - {1}%".format(name, rate),
-        #     "rate": rate,
-        #     "tax_amount": flt(tax.get("tax_total") or 0) + flt(tax.get("shipping_tax_total") or 0),
-        #     "included_in_print_rate": 1 if woocommerce_order.get("prices_include_tax") else 0,
-        #     "cost_center": woocommerce_settings.cost_center
-        # })
-    taxes = update_taxes_with_fee_lines(
+        taxes = update_taxes_with_fee_lines(
         taxes, woocommerce_order.get("fee_lines"), woocommerce_settings
     )
     taxes = update_taxes_with_shipping_lines(
@@ -663,7 +691,7 @@ def update_taxes_with_fee_lines(taxes, fee_lines, woocommerce_settings):
 
 def update_taxes_with_shipping_lines(taxes, shipping_lines, woocommerce_settings):
     for shipping_charge in shipping_lines:
-        #
+        
         taxes.append(
             {
                 "charge_type": "Actual",
@@ -749,3 +777,4 @@ def close_synced_woocommerce_order(wooid):
             request_data=woocommerce_order,
             exception=True,
         )
+
