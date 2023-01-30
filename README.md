@@ -14,6 +14,6 @@ AGPL
 
 On the ERPNext server, run
 
-    $ cd /home/frappe/frappe-bench
+    $ cd /home/erpnext/frappe-bench
 	$ bench get-app https://github.com/rechargehealth/woocommerceconnector.git
 	$ bench install-app woocommerceconnector
